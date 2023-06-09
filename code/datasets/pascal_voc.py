@@ -47,7 +47,7 @@ class VOCDetection(Dataset):
 				 transforms=None):
 
 		self.root = root
-
+		breakpoint()
 		self.transforms = transforms
 		self.year = year
 		if year == "2007" and image_set == "test":
@@ -61,7 +61,9 @@ class VOCDetection(Dataset):
 		self.image_set = verify_str_arg(image_set, "image_set", valid_sets)
 
 		base_dir = DATASET_YEAR_DICT[year]['base_dir']
+		
 		voc_root = os.path.join(self.root, base_dir)
+		print(voc_root)
 		image_dir = os.path.join(voc_root, 'JPEGImages')
 		annotation_dir = os.path.join(voc_root, 'Annotations')
 

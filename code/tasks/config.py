@@ -7,7 +7,7 @@ __C = AttrDict()
 cfg = __C
 
 cfg.ROOT_DIR = osp.abspath(osp.join(osp.dirname(__file__), '..', '..'))
-cfg.DATA_DIR = osp.abspath(osp.join(cfg.ROOT_DIR, 'data'))
+cfg.DATA_DIR = osp.abspath(osp.join(cfg.ROOT_DIR, 'datasets'))
 
 
 def load_config(cfg_file):
