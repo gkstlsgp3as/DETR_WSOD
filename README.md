@@ -20,6 +20,16 @@ VOC2007 trainval
 | ---------- | ---- | ---- | ---- | ---- | ------ | ---- | ---- | ---- | ----- | ---- | ----- | ---- | ----- | ----- | ------ | ----- | ----- | ---- | ----- | ---- | -------- |
 | **CorLoc** | 80.4 | 82.7 | 67.3 | 42.6 | 41.2   | 80.2 | 85.5 | 51.5 | 42.7  | 78.8 | 43.3  | 40.5 | 52.0  | 88.4  | 15.7   | 57.1  | 81.4  | 53.2 | 74.1  | 82.8 | **62.1** |
 
+## Attention! 
+### training
+```shell
+python main.py --coco_path /home/shhan/oicr/data/coco --backbone vit_small --patch_size 8 --wsod 
+
+# for distributed training
+python -m torch.distributed.launch --nproc_per_node=4 main.py --coco_path /home/shhan/oicr/data/coco --backbone vit_small --patch_size 8 --wsod 
+```
+
+
 ## Contents
 
 1. [Requirements: software](#requirements-software)
@@ -57,6 +67,7 @@ Clone this repository
 ```shell
 git clone https://github.com/CatOneTwo/OICR-PyTorch
 ```
+
 ## Installation for training and testing
 1. Create a "data" folder in  $OICR_ROOT and enter in this folder
     ```Shell

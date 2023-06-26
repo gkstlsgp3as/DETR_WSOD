@@ -93,24 +93,23 @@ class Backbone(BackboneBase):
         super().__init__(backbone, train_backbone, num_channels, return_interm_layers)
 
 # wsod
-class DINOBackbone():
+class DINOBackbone(nn.Module):
     """ResNet backbone with frozen BatchNorm."""
-    def __init__(self, name: str,
-                 train_backbone: bool,
-                 return_interm_layers: bool,
-                 dilation: bool,
-                 patch_size: int):
+    def __init__(self, args: str):
+        super().__init__()
         import models.vision_transformer as vits
-        self.arch = name
-        self.patch_size = patch_size
+        self.arch = args.arch
+        self.patch_size = args.patch_size
+        self.conv = nn.Conv2d(6, args.hidden_dim, 1)
+        self.num_channels = args.hidden_dim
 
-        model = vits.__dict__[name](patch_size=patch_size, num_classes=0)
-        for p in model.parameters():
+        self.model = vits.__dict__[self.arch](patch_size=self.patch_size, num_classes=0)
+        for p in self.model.parameters():
             p.requires_grad = False
         
         url = self.return_url()
         state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
-        model.load_state_dict(state_dict, strict=True)
+        self.model.load_state_dict(state_dict, strict=True)
 
     def return_url(self):
         if self.arch == "vit_small" and self.patch_size == 16:
@@ -125,13 +124,27 @@ class DINOBackbone():
         return url
 
     def forward(self, tensor_list: NestedTensor):
-        w_featmap = tensor_list.shape[-2] // self.patch_size
-        h_featmap = tensor_list.shape[-1] // self.patch_size
+        w_featmap = tensor_list.tensors.shape[-2] // self.patch_size
+        h_featmap = tensor_list.tensors.shape[-1] // self.patch_size
+        
+        attentions, _x_ctxed, _x_final = self.model.get_last_selfattention(tensor_list.tensors)
+        nhead = attentions.shape[1]
+        #cls_attn = attentions.mean(1).squeeze()[0,1:].reshape(w_featmap, h_featmap)
+        
+        cls_attn = attentions[:,:,0,1:].reshape(-1, nhead, w_featmap, h_featmap) # ex. 2, 6, 62, 75
+        cls_attn = self.conv(cls_attn) # 2, 256, w, h
+        
+        #cls_attn = self.conv(cls_attn).flatten(2).permute(1,0,1) # ex. torch.Size([2, 256, 9435]) > 4960, 2, 256
+        # RuntimeError: Given groups=1, weight of size [256, 256, 1, 1], expected input[1, 9435, 2, 256] to have 256 channels, but got 9435 channels instead
+        xs = {'last': cls_attn} 
+        out: Dict[str, NestedTensor] = {}
+        for name, x in xs.items():
+            m = tensor_list.mask
+            assert m is not None
+            mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
+            out[name] = NestedTensor(x, mask)
 
-        attentions, _x_ctxed, _x_final = self.get_last_selfattention(tensor_list)
-        cls_attn = attentions.mean(1).squeeze()[0,1:].reshape(w_featmap, h_featmap)
-
-        return cls_attn
+        return out
 
 class Joiner(nn.Sequential):
     def __init__(self, backbone, position_embedding):
@@ -151,13 +164,14 @@ class Joiner(nn.Sequential):
 
 def build_backbone(args):
     position_embedding = build_position_encoding(args)
-    train_backbone = args.lr_backbone > 0
-    return_interm_layers = args.masks
     # wsod
     if args.wsod: 
-        backbone = DINOBackbone(args.arch, args.patch_size)
+        backbone = DINOBackbone(args)
     else:
+        train_backbone = args.lr_backbone > 0
+        return_interm_layers = args.masks
         backbone = Backbone(args.backbone, train_backbone, return_interm_layers, args.dilation)
     model = Joiner(backbone, position_embedding)
+    
     model.num_channels = backbone.num_channels
     return model

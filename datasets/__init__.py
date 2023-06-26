@@ -3,7 +3,7 @@ import torch.utils.data
 import torchvision
 
 # wsod
-from .coco import build, build_wsod
+from .coco import build
 
 
 def get_coco_api_from_dataset(dataset):
@@ -18,11 +18,7 @@ def get_coco_api_from_dataset(dataset):
 
 def build_dataset(image_set, args):
     if args.dataset_file == 'coco':
-        # wsod 
-        if args.wsod == True:
-            return build_wsod(image_set, args)
-        else:
-            return build(image_set, args)
+        return build(image_set, args)
     if args.dataset_file == 'coco_panoptic':
         # to avoid making panopticapi required for coco
         from .coco_panoptic import build as build_coco_panoptic

@@ -125,6 +125,29 @@ class SetCriterion(nn.Module):
             # TODO this should probably be a separate loss, not hacked in this one here
             losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
+    
+    def loss_img_labels(self, outputs, targets, indices, num_boxes, log=True):
+        """Classification loss with image labels (NLL)
+        targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
+        """
+        assert 'pred_logits' in outputs
+        src_logits = outputs['pred_logits']
+ 
+        idx = self._get_src_permutation_idx(indices)
+        target_classes_o = torch.cat([t["img_labels"][J] for t, (_, J) in zip(targets, indices)])
+        target_classes = torch.full(src_logits.shape[:2], self.num_classes,
+                                    dtype=torch.int64, device=src_logits.device)
+        target_classes[idx] = target_classes_o
+
+        #loss = -labels * torch.log(cls_score) - (1 - labels) * torch.log(1 - cls_score)
+
+        loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
+        losses = {'loss_ce': loss_ce}
+
+        if log:
+            # TODO this should probably be a separate loss, not hacked in this one here
+            losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
+        return losses
 
     @torch.no_grad()
     def loss_cardinality(self, outputs, targets, indices, num_boxes):
@@ -293,12 +316,20 @@ class SetCriterionWSOD(nn.Module):
         target_classes[idx] = target_classes_o
 
         loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
-        losses = {'loss_ce': loss_ce}
+        loss_mil = self.mil_loss(src_logits, target_classes)
+        losses = {'loss_ce': loss_ce, 'loss_mil': loss_mil}
 
         if log:
             # TODO this should probably be a separate loss, not hacked in this one here
             losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
+
+    # wsod
+    def mil_loss(src_logits, target_classes):
+        # refer to code.layers.losses.mil_loss; target_classes: labels, src_logits: class scores
+        loss = -target_classes * torch.log(src_logits) - (1 - target_classes) * torch.log(1 - src_logits)
+
+        return loss
 
     @torch.no_grad()
     def loss_cardinality(self, outputs, targets, indices, num_boxes):
@@ -466,7 +497,7 @@ def build(args):
         losses += ["masks"]
 
     # wsod
-    if args.wsod and :
+    if args.wsod: # training할 때만 WSOD로 loss 체크하고 validation할 때는 bbox 체크했으면 좋겠는데...
         criterion = SetCriterionWSOD(num_classes, matcher=matcher, weight_dict=weight_dict,
                                 eos_coef=args.eos_coef, losses=losses)
     else:

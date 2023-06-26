@@ -93,7 +93,8 @@ def get_args_parser():
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
     parser.add_argument('--eval', action='store_true')
-    parser.add_argument('--num_workers', default=2, type=int)
+    parser.add_argument('--num_workers', default=4, type=int)
+    parser.add_argument("--local_rank", type=int, default=0)
 
     # distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,
@@ -101,12 +102,14 @@ def get_args_parser():
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     
     # wsod
-    parser.add_argument('--wsod', action=True, help='enable weakly-supervised object detection (WSOD))')
+    parser.add_argument('--wsod', action="store_true", help='enable weakly-supervised object detection (WSOD))')
     parser.add_argument('--arch', default='vit_small', type=str,
                         choices=['vit_tiny', 'vit_small', 'vit_base'], help='Architecture (support only ViT atm).')
     parser.add_argument('--patch_size', default=8, type=int, help='Patch resolution of the model.')
     parser.add_argument("--checkpoint_key", default="teacher", type=str,
                         help='Key to use in the checkpoint (example: "teacher")')
+    parser.add_argument("--pkl", default="./data/coco_train2017_proposals.pkl", type=str, help='directory for proposal')
+    parser.add_argument("--cache", action='store_true', help="cacheing the labels for partial coco dataset")
     return parser
 
 
@@ -149,7 +152,7 @@ def main(args):
 
     dataset_train = build_dataset(image_set='train', args=args) # wsod setting
     dataset_val = build_dataset(image_set='val', args=args) # detection setting for evaluation
-
+    
     if args.distributed:
         sampler_train = DistributedSampler(dataset_train)
         sampler_val = DistributedSampler(dataset_val, shuffle=False)

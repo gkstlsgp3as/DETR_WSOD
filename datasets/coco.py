@@ -9,41 +9,47 @@ from pathlib import Path
 import torch
 import torch.utils.data
 import torchvision
+import numpy as np
 from pycocotools import mask as coco_mask
-
 import datasets.transforms as T
 
 
+
 class CocoDetection(torchvision.datasets.CocoDetection):
-    def __init__(self, img_folder, ann_file, transforms, return_masks):
+    def __init__(self, img_folder, ann_file, transforms, return_masks, image_set, pkl):
         super(CocoDetection, self).__init__(img_folder, ann_file)
+        import pickle 
+        
         self._transforms = transforms
         self.prepare = ConvertCocoPolysToMask(return_masks)
 
+        with open(pkl.replace('train',image_set), 'rb') as f:
+            self.proposals = pickle.load(f)
+
+        print("hello")
+
     def __getitem__(self, idx):
         img, target = super(CocoDetection, self).__getitem__(idx)
+        shape = torch.as_tensor(img.size)
         image_id = self.ids[idx]
         target = {'image_id': image_id, 'annotations': target}
+        
         img, target = self.prepare(img, target)
+        #target['orig_size'] = torch.as_tensor([int(img.size[1]), int(img.size[0])]) # h, w
+        target['img_labels'] = torch.unique(target['labels']) # wsod
+        target['proposals'] = normalize_proposals(self.proposals[image_id], shape) # wsod proposals from dino
+        
         if self._transforms is not None:
             img, target = self._transforms(img, target)
+            #target['size'] = torch.as_tensor([int(img.shape[2]), int(img.shape[1])]) # h, w
+        # targets.keys() = dict_keys(['boxes', 'labels', 'image_id', 'area', 'iscrowd', 'orig_size', 'size', 'img_labels', 'proposals'])
         return img, target
+
+def normalize_proposals(proposals, size):
+    # divide with width and height for normalization -> make it simple to resize
+    proposals = [p/size[0] if i//2==0 else p/size[1] for i, p in enumerate(proposals)]
     
-class CocoWSOD(torchvision.datasets.CocoDetection):
-    def __init__(self, img_folder, ann_file, transforms, return_masks):
-        super(CocoDetection, self).__init__(img_folder, ann_file)
-        self._transforms = transforms
-        self.prepare = ConvertCocoPolysToMask(return_masks)
-
-    def __getitem__(self, idx):
-        img, target = super(CocoDetection, self).__getitem__(idx)
-        image_id = self.ids[idx]
-        target = {'image_id': image_id, 'annotations': target}
-        img, target = self.prepare(img, target)
-        if self._transforms is not None:
-            img, target = self._transforms(img, target)
-        return img, target
-
+    return torch.cat(proposals).reshape(-1,4)
 
 def convert_coco_poly_to_mask(segmentations, height, width):
     masks = []
@@ -164,24 +170,27 @@ def build(image_set, args):
     assert root.exists(), f'provided COCO path {root} does not exist'
     mode = 'instances'
     PATHS = {
-        "train": (root / "train2017", root / "annotations" / f'{mode}_train2017.json'),
-        "val": (root / "val2017", root / "annotations" / f'{mode}_val2017.json'),
+        "train": (root / "images" / "train2017", root / "annotations" / f'{mode}_train2017.json'),
+        "val": (root / "images" / "val2017", root / "annotations" / f'{mode}_val2017.json'),
     }
 
     img_folder, ann_file = PATHS[image_set]
-    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks)
-    return dataset
+    print(img_folder)
+    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks, image_set=image_set, pkl=args.pkl)
+    
+    if args.pkl:
+        if args.cache: # want to load partial coco dataset
+            cache_path = Path('./data/'+image_set+'_proposals.cache')
+            if cache_path.is_file(): 
+                print(cache_path+' found..')
+                dataset = torch.load(cache_path)
+            else:
+                import pickle
 
-# wsod
-def build_wsod(image_set, args):
-    root = Path(args.coco_path)
-    assert root.exists(), f'provided COCO path {root} does not exist'
-    mode = 'instances'
-    PATHS = {
-        "train": (root / "train2017", root / "annotations" / f'{mode}_train2017.json'),
-        "val": (root / "val2017", root / "annotations" / f'{mode}_val2017.json'),
-    }
-
-    img_folder, ann_file = PATHS[image_set]
-    dataset = CocoWSOD(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks)
+                with open(args.pkl, 'rb') as f:
+                    proposals = pickle.load(f)
+                
+                dataset = [d for d in dataset if d[1]['image_id'] in list(proposals.keys())]
+                torch.save(dataset, cache_path)
+                print(cache_path+' saved..')
     return dataset
