@@ -127,13 +127,13 @@ class DINOBackbone(nn.Module):
         w_featmap = tensor_list.tensors.shape[-2] // self.patch_size
         h_featmap = tensor_list.tensors.shape[-1] // self.patch_size
         
+        # get_intermediate_layers로 중간 layer들 뽑아서 쓰는것도 가능은 할 것 같은데 
         attentions, _x_ctxed, _x_final = self.model.get_last_selfattention(tensor_list.tensors)
         nhead = attentions.shape[1]
         #cls_attn = attentions.mean(1).squeeze()[0,1:].reshape(w_featmap, h_featmap)
         
         cls_attn = attentions[:,:,0,1:].reshape(-1, nhead, w_featmap, h_featmap) # ex. 2, 6, 62, 75
         cls_attn = self.conv(cls_attn) # 2, 256, w, h
-        
         #cls_attn = self.conv(cls_attn).flatten(2).permute(1,0,1) # ex. torch.Size([2, 256, 9435]) > 4960, 2, 256
         # RuntimeError: Given groups=1, weight of size [256, 256, 1, 1], expected input[1, 9435, 2, 256] to have 256 channels, but got 9435 channels instead
         xs = {'last': cls_attn} 
@@ -165,7 +165,7 @@ class Joiner(nn.Sequential):
 def build_backbone(args):
     position_embedding = build_position_encoding(args)
     # wsod
-    if args.wsod: 
+    if not args.backbone.startswith('resnet'): 
         backbone = DINOBackbone(args)
     else:
         train_backbone = args.lr_backbone > 0

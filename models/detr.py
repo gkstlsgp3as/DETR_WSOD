@@ -126,29 +126,6 @@ class SetCriterion(nn.Module):
             losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
     
-    def loss_img_labels(self, outputs, targets, indices, num_boxes, log=True):
-        """Classification loss with image labels (NLL)
-        targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
-        """
-        assert 'pred_logits' in outputs
-        src_logits = outputs['pred_logits']
- 
-        idx = self._get_src_permutation_idx(indices)
-        target_classes_o = torch.cat([t["img_labels"][J] for t, (_, J) in zip(targets, indices)])
-        target_classes = torch.full(src_logits.shape[:2], self.num_classes,
-                                    dtype=torch.int64, device=src_logits.device)
-        target_classes[idx] = target_classes_o
-
-        #loss = -labels * torch.log(cls_score) - (1 - labels) * torch.log(1 - cls_score)
-
-        loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
-        losses = {'loss_ce': loss_ce}
-
-        if log:
-            # TODO this should probably be a separate loss, not hacked in this one here
-            losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
-        return losses
-
     @torch.no_grad()
     def loss_cardinality(self, outputs, targets, indices, num_boxes):
         """ Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes
@@ -309,25 +286,36 @@ class SetCriterionWSOD(nn.Module):
         assert 'pred_logits' in outputs
         src_logits = outputs['pred_logits']
 
-        idx = self._get_src_permutation_idx(indices)
-        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
-        target_classes = torch.full(src_logits.shape[:2], self.num_classes,
-                                    dtype=torch.int64, device=src_logits.device)
-        target_classes[idx] = target_classes_o
+        #idx = self._get_src_permutation_idx(indices)
+        #target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
+        
+        #target_classes = torch.full(src_logits.shape[:2], self.num_classes,
+        #                            dtype=torch.int64, device=src_logits.device) # 2, 100
+        #target_classes[idx] = target_classes_o
+        #loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
+        target_classes_im = torch.cat([t["img_labels"] for t in targets])
+        loss_mil = self.mil_loss(src_logits, target_classes_im)
+        losses = {'loss_mil': loss_mil}#{'loss_ce': loss_ce, 'loss_mil': loss_mil}
 
-        loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
-        loss_mil = self.mil_loss(src_logits, target_classes)
-        losses = {'loss_ce': loss_ce, 'loss_mil': loss_mil}
-
-        if log:
-            # TODO this should probably be a separate loss, not hacked in this one here
-            losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
+        #if log:
+        #    # TODO this should probably be a separate loss, not hacked in this one here
+        #    losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
 
     # wsod
-    def mil_loss(src_logits, target_classes):
+    def mil_loss(self, src_logits, target_classes_im):
+        import torch.nn.functional as F
         # refer to code.layers.losses.mil_loss; target_classes: labels, src_logits: class scores
-        loss = -target_classes * torch.log(src_logits) - (1 - target_classes) * torch.log(1 - src_logits)
+        # src_logits.shape = (2, 100, 92) = (batch_size, n_tokens, n_classes)
+        # target_classes.shape = (2, 100)
+        
+        mil_score_c = F.softmax(src_logits, dim=2) # softmax over classes -> mil_score_c[0,0,:].sum() == 1
+        mil_score_r = F.softmax(src_logits, dim=1) # softmax over proposals -> mil_score_r[0,:,0].sum() == 1
+        mil_score = mil_score_c * mil_score_r
+
+        im_cls_score = mil_score.sum(dim=1) # 2, 92 # sum over proposals -> get img labels
+        loss = F.cross_entropy(im_cls_score, target_classes_im) # error
+        #loss = -target_classes * torch.log(im_cls_score) - (1 - target_classes) * torch.log(1 - im_cls_score)
 
         return loss
 
