@@ -12,8 +12,7 @@ import torchvision
 import numpy as np
 from pycocotools import mask as coco_mask
 import datasets.transforms as T
-
-
+import random
 
 class CocoDetection(torchvision.datasets.CocoDetection):
     def __init__(self, img_folder, ann_file, transforms, return_masks, image_set, pkl):
@@ -27,6 +26,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
             self.proposals = pickle.load(f)
 
         print("hello")
+        self.retries = 100
 
     def __getitem__(self, idx):
         img, target = super(CocoDetection, self).__getitem__(idx)
@@ -37,7 +37,14 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         img, target = self.prepare(img, target)
         #target['orig_size'] = torch.as_tensor([int(img.size[1]), int(img.size[0])]) # h, w
         target['img_labels'] = torch.unique(target['labels']) # wsod
-        target['proposals'] = normalize_proposals(self.proposals[image_id], shape) # wsod proposals from dino
+        for _ in range(self.retries):
+            try:
+                proposal = self.proposals[image_id]
+            except:
+                image_id = random.randint(0, len(self.ids) - 1)
+                continue
+            
+        target['proposals'] = normalize_proposals(proposal, shape) # wsod proposals from dino
         
         if self._transforms is not None:
             img, target = self._transforms(img, target)
