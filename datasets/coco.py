@@ -13,6 +13,7 @@ import numpy as np
 from pycocotools import mask as coco_mask
 import datasets.transforms as T
 import random
+import random
 
 class CocoDetection(torchvision.datasets.CocoDetection):
     def __init__(self, img_folder, ann_file, transforms, return_masks, image_set, pkl):
@@ -21,6 +22,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         
         self._transforms = transforms
         self.prepare = ConvertCocoPolysToMask(return_masks)
+        self.retries = 100
         self.retries = 100
 
         with open(pkl.replace('train',image_set), 'rb') as f:
@@ -35,12 +37,12 @@ class CocoDetection(torchvision.datasets.CocoDetection):
                 shape = torch.as_tensor(img.size)
                 image_id = self.ids[idx]
                 target = {'image_id': image_id, 'annotations': target}
-
+                
                 img, target = self.prepare(img, target)
                 #target['orig_size'] = torch.as_tensor([int(img.size[1]), int(img.size[0])]) # h, w
                 target['img_labels'] = torch.unique(target['labels']) # wsod
                 target['proposals'] = normalize_proposals(self.proposals[image_id], shape) # wsod proposals from dino
-
+                
                 if self._transforms is not None:
                     img, target = self._transforms(img, target)
                     #target['size'] = torch.as_tensor([int(img.shape[2]), int(img.shape[1])]) # h, w

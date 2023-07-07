@@ -100,7 +100,7 @@ class DINOBackbone(nn.Module):
         import models.vision_transformer as vits
         self.arch = args.arch
         self.patch_size = args.patch_size
-        self.conv = nn.Conv2d(6, args.hidden_dim, 1)
+        # self.conv = nn.Conv2d(6, args.hidden_dim, 1)
         self.num_channels = args.hidden_dim
 
         self.model = vits.__dict__[self.arch](patch_size=self.patch_size, num_classes=0)
@@ -138,6 +138,10 @@ class DINOBackbone(nn.Module):
         # nhead = attentions.shape[1]
         # cls_attn = attentions.mean(1).squeeze()[0,1:].reshape(w_featmap, h_featmap)
         
+        # nhead = attentions.shape[1] 
+        # cls_attn = attentions.mean(1).squeeze()[0,1:].reshape(w_featmap, h_featmap)
+        # cls_attn = attentions[:,:,0,1:].reshape(-1, nhead, w_featmap, h_featmap) # ex. 2, 6, 62, 75
+        # cls_attn = self.conv(cls_attn) # 2, 256, w, h
         # cls_attn = attentions[:,:,0,1:].reshape(-1, nhead, w_featmap, h_featmap) # ex. 2, 6, 62, 75
         # cls_attn = self.conv(cls_attn) # 2, 256, w, h
         #cls_attn = self.conv(cls_attn).flatten(2).permute(1,0,1) # ex. torch.Size([2, 256, 9435]) > 4960, 2, 256
