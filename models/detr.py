@@ -8,7 +8,7 @@ from torch import nn
 
 from util import box_ops
 from util.misc import (NestedTensor, nested_tensor_from_tensor_list,
-                       accuracy, get_world_size, interpolate,
+                       accuracy, mult_accuracy, get_world_size, interpolate,
                        is_dist_avail_and_initialized)
 
 from .backbone import build_backbone
@@ -286,38 +286,64 @@ class SetCriterionWSOD(nn.Module):
         assert 'pred_logits' in outputs
         src_logits = outputs['pred_logits']
 
-        #idx = self._get_src_permutation_idx(indices)
-        #target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
+        idx = self._get_src_permutation_idx(indices)
+        target_classes_im = torch.vstack([t["img_labels"] for t in targets])
         
-        #target_classes = torch.full(src_logits.shape[:2], self.num_classes,
-        #                            dtype=torch.int64, device=src_logits.device) # 2, 100
-        #target_classes[idx] = target_classes_o
-        #loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
-        target_classes_im = torch.cat([t["img_labels"] for t in targets])
-        loss_mil = self.mil_loss(src_logits, target_classes_im)
+        target_classes = torch.full(src_logits.transpose(2,1).shape[:2], 0,
+                                    dtype=torch.int64, device=src_logits.device) # 2, 92
+        ind = torch.full(target_classes_im.flatten().shape, 0, dtype=torch.int64, device=src_logits.device)
+        ind = (ind, ind)
+
+        for i, row in enumerate(target_classes_im):
+            for col in row:
+                ind[i][col] = target_classes_im[i][col]
+
+        target_classes[ind] = target_classes_im
+        #target_classes[idx] = target_classes_im
+        breakpoint()
+        #loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight) # 2,92,100 vs. 2,100
+        
+        #onehot_target_im = torch.Tensor([1 if i in target_classes_im else 0 for i in range(src_logits.shape[2])]).to(src_logits.device)
+        onehot_target_im = torch.Tensor()
+
+        loss_mil = self.mil_loss(src_logits, onehot_target_im)
         losses = {'loss_mil': loss_mil}#{'loss_ce': loss_ce, 'loss_mil': loss_mil}
 
-        #if log:
+        if log:
         #    # TODO this should probably be a separate loss, not hacked in this one here
-        #    losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
+            losses['class_error'] = 100 - mult_accuracy(src_logits[idx], target_classes_im)[0]
         return losses
 
     # wsod
-    def mil_loss(self, src_logits, target_classes_im):
+    def multcls_loss(self, src_logits, onehot_target_im, matcher):
+        from torch import nn 
+        
+        # shape: 92
+        #indices = matcher(src_logits, onehot_target) # 2, 100, 92 & 92
+        
+        multi_criterion = nn.MultiLabelSoftMarginLoss(weight=None, reduce=False)
+        multi_loss = multi_criterion(src_logits, onehot_target_im) # 2, 100
+
+        return multi_loss
+
+    def mil_loss(self, src_logits, onehot_target_im):
         import torch.nn.functional as F
+        from torch import nn 
         # refer to code.layers.losses.mil_loss; target_classes: labels, src_logits: class scores
         # src_logits.shape = (2, 100, 92) = (batch_size, n_tokens, n_classes)
         # target_classes.shape = (2, 100)
-        
         mil_score_c = F.softmax(src_logits, dim=2) # softmax over classes -> mil_score_c[0,0,:].sum() == 1
         mil_score_r = F.softmax(src_logits, dim=1) # softmax over proposals -> mil_score_r[0,:,0].sum() == 1
         mil_score = mil_score_c * mil_score_r
 
         im_cls_score = mil_score.sum(dim=1) # 2, 92 # sum over proposals -> get img labels
-        loss = F.cross_entropy(im_cls_score, target_classes_im) # error
+        
+        multi_criterion = nn.MultiLabelSoftMarginLoss(weight=None, reduce=False)
+        loss = multi_criterion(im_cls_score, onehot_target_im) # 2
+        #loss = F.cross_entropy(im_cls_score, onehot_target) # error
         #loss = -target_classes * torch.log(im_cls_score) - (1 - target_classes) * torch.log(1 - im_cls_score)
 
-        return loss
+        return loss.mean()
 
     @torch.no_grad()
     def loss_cardinality(self, outputs, targets, indices, num_boxes):
@@ -326,7 +352,7 @@ class SetCriterionWSOD(nn.Module):
         """
         pred_logits = outputs['pred_logits']
         device = pred_logits.device
-        tgt_lengths = torch.as_tensor([len(v["labels"]) for v in targets], device=device)
+        tgt_lengths = torch.as_tensor([len(v["img_labels"]) for v in targets], device=device)
         # Count the number of predictions that are NOT "no-object" (which is the last class)
         card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
         card_err = F.l1_loss(card_pred.float(), tgt_lengths.float())
@@ -480,18 +506,76 @@ def build(args):
             aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items()})
         weight_dict.update(aux_weight_dict)
 
-    losses = ['labels', 'boxes', 'cardinality']
+    losses = ['labels','boxes','cardinality']
     if args.masks:
         losses += ["masks"]
 
     # wsod
-    if args.wsod: # training할 때만 WSOD로 loss 체크하고 validation할 때는 bbox 체크했으면 좋겠는데...
-        criterion = SetCriterionWSOD(num_classes, matcher=matcher, weight_dict=weight_dict,
-                                eos_coef=args.eos_coef, losses=losses)
-    else:
-        criterion = SetCriterion(num_classes, matcher=matcher, weight_dict=weight_dict,
-                                eos_coef=args.eos_coef, losses=losses)
+    
+    criterion = SetCriterion(num_classes, matcher=matcher, weight_dict=weight_dict,
+                             eos_coef=args.eos_coef, losses=losses)
     criterion.to(device)
+    
+    postprocessors = {'bbox': PostProcess()}
+    if args.masks:
+        postprocessors['segm'] = PostProcessSegm()
+        if args.dataset_file == "coco_panoptic":
+            is_thing_map = {i: i <= 90 for i in range(201)}
+            postprocessors["panoptic"] = PostProcessPanoptic(is_thing_map, threshold=0.85)
+
+    return model, criterion, postprocessors
+
+def build_wsod(args):
+    # the `num_classes` naming here is somewhat misleading.
+    # it indeed corresponds to `max_obj_id + 1`, where max_obj_id
+    # is the maximum id for a class in your dataset. For example,
+    # COCO has a max_obj_id of 90, so we pass `num_classes` to be 91.
+    # As another example, for a dataset that has a single class with id 1,
+    # you should pass `num_classes` to be 2 (max_obj_id + 1).
+    # For more details on this, check the following discussion
+    # https://github.com/facebookresearch/detr/issues/108#issuecomment-650269223
+    num_classes = 20 if args.dataset_file != 'coco' else 91
+    if args.dataset_file == "coco_panoptic":
+        # for panoptic, we just add a num_classes that is large enough to hold
+        # max_obj_id + 1, but the exact value doesn't really matter
+        num_classes = 250
+    device = torch.device(args.device)
+
+    backbone = build_backbone(args)
+
+    transformer = build_transformer(args)
+
+    model = DETR(
+        backbone,
+        transformer,
+        num_classes=num_classes,
+        num_queries=args.num_queries,
+        aux_loss=args.aux_loss,
+    )
+    if args.masks:
+        model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
+    matcher = build_matcher(args)
+    weight_dict = {'loss_mil': 1}
+    weight_dict['loss_giou'] = args.giou_loss_coef
+    if args.masks:
+        weight_dict["loss_mask"] = args.mask_loss_coef
+        weight_dict["loss_dice"] = args.dice_loss_coef
+    # TODO this is a hack
+    if args.aux_loss:
+        aux_weight_dict = {}
+        for i in range(args.dec_layers - 1):
+            aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items()})
+        weight_dict.update(aux_weight_dict)
+
+    losses = ['labels', 'cardinality']
+    if args.masks:
+        losses += ["masks"]
+
+    # training할 때만 WSOD로 loss 체크하고 validation할 때는 bbox 체크했으면 좋겠는데...
+    criterion = SetCriterionWSOD(num_classes, matcher=matcher, weight_dict=weight_dict,
+                                 eos_coef=args.eos_coef, losses=losses)
+    criterion.to(device)
+
     postprocessors = {'bbox': PostProcess()}
     if args.masks:
         postprocessors['segm'] = PostProcessSegm()

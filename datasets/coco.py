@@ -12,8 +12,7 @@ import torchvision
 import numpy as np
 from pycocotools import mask as coco_mask
 import datasets.transforms as T
-
-
+import random
 
 class CocoDetection(torchvision.datasets.CocoDetection):
     def __init__(self, img_folder, ann_file, transforms, return_masks, image_set, pkl):
@@ -22,6 +21,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         
         self._transforms = transforms
         self.prepare = ConvertCocoPolysToMask(return_masks)
+        self.retries = 100
 
         with open(pkl.replace('train',image_set), 'rb') as f:
             self.proposals = pickle.load(f)
@@ -29,21 +29,28 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         print("hello")
 
     def __getitem__(self, idx):
-        img, target = super(CocoDetection, self).__getitem__(idx)
-        shape = torch.as_tensor(img.size)
-        image_id = self.ids[idx]
-        target = {'image_id': image_id, 'annotations': target}
-        
-        img, target = self.prepare(img, target)
-        #target['orig_size'] = torch.as_tensor([int(img.size[1]), int(img.size[0])]) # h, w
-        target['img_labels'] = torch.unique(target['labels']) # wsod
-        target['proposals'] = normalize_proposals(self.proposals[image_id], shape) # wsod proposals from dino
-        
-        if self._transforms is not None:
-            img, target = self._transforms(img, target)
-            #target['size'] = torch.as_tensor([int(img.shape[2]), int(img.shape[1])]) # h, w
-        # targets.keys() = dict_keys(['boxes', 'labels', 'image_id', 'area', 'iscrowd', 'orig_size', 'size', 'img_labels', 'proposals'])
-        return img, target
+        for _num_retries in range(self.retries):
+            try:
+                img, target = super(CocoDetection, self).__getitem__(idx)
+                shape = torch.as_tensor(img.size)
+                image_id = self.ids[idx]
+                target = {'image_id': image_id, 'annotations': target}
+
+                img, target = self.prepare(img, target)
+                #target['orig_size'] = torch.as_tensor([int(img.size[1]), int(img.size[0])]) # h, w
+                target['img_labels'] = torch.unique(target['labels']) # wsod
+                target['proposals'] = normalize_proposals(self.proposals[image_id], shape) # wsod proposals from dino
+
+                if self._transforms is not None:
+                    img, target = self._transforms(img, target)
+                    #target['size'] = torch.as_tensor([int(img.shape[2]), int(img.shape[1])]) # h, w
+                # targets.keys() = dict_keys(['boxes', 'labels', 'image_id', 'area', 'iscrowd', 'orig_size', 'size', 'img_labels', 'proposals'])
+            except:
+                idx = random.randint(0, len(self.ids) - 1)
+                continue
+            return img, target
+        else:
+            print(f'Failed in CocoDetection after {_num_retries} retries')
 
 def normalize_proposals(proposals, size):
     # divide with width and height for normalization -> make it simple to resize

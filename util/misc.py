@@ -437,9 +437,9 @@ def accuracy(output, target, topk=(1,)):
     maxk = max(topk)
     batch_size = target.size(0)
 
-    _, pred = output.topk(maxk, 1, True, True)
+    _, pred = output.topk(maxk, 1, True, True) #(input, k, dim=None, largest=True, sorted=True, *, out=None) -> val, indices
     pred = pred.t()
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
+    correct = pred.eq(target.view(1, -1).expand_as(pred)) # same size as tensor
 
     res = []
     for k in topk:
@@ -447,6 +447,32 @@ def accuracy(output, target, topk=(1,)):
         res.append(correct_k.mul_(100.0 / batch_size))
     return res
 
+@torch.no_grad()
+def mult_accuracy(output, target, topk=(1,)):
+    """Computes the precision@k for the specified values of k"""
+    if target.numel() == 0:
+        return [torch.zeros([], device=output.device)]
+    maxk = max(topk)
+    batch_size = target.size(0)
+
+    _, pred = output.topk(maxk, 1, True, True) #(input, k, dim=None, largest=True, sorted=True, *, out=None) -> val, indices
+    pred = pred.t()
+    correct = getIntersection(pred, target) # same size as tensor
+
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0)
+        res.append(correct_k.mul_(100.0 / batch_size))
+    return res
+
+def getIntersection(a, b):
+    indices = torch.zeros_like(a, dtype=torch.uint8)
+
+    for elem in b:
+        indices = indices | (a == elem).type(torch.uint8)
+
+    intersection = a[indices.type(torch.bool)]
+    return intersection
 
 def interpolate(input, size=None, scale_factor=None, mode="nearest", align_corners=None):
     # type: (Tensor, Optional[List[int]], Optional[float], str, Optional[bool]) -> Tensor

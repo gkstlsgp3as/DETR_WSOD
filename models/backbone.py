@@ -129,14 +129,20 @@ class DINOBackbone(nn.Module):
         
         # get_intermediate_layers로 중간 layer들 뽑아서 쓰는것도 가능은 할 것 같은데 
         attentions, _x_ctxed, _x_final = self.model.get_last_selfattention(tensor_list.tensors)
-        nhead = attentions.shape[1]
-        #cls_attn = attentions.mean(1).squeeze()[0,1:].reshape(w_featmap, h_featmap)
+        # height x width = # of tokens
+        # attentions : query @ key, [batch, # of heads,  # of tokens, # of tokens]
+        # _x_ctxed : attentions @ value, means contextualized, [batch, # of tokens, dimension]
+        # _x_final : mlp(attentions), attention block(attention + mlp)을 완전히 통과한 이후의 tokens 
+        # -> 즉 frozen extractor에서 뽑은 feature를 쓰려면, _x_final을 써야함
         
-        cls_attn = attentions[:,:,0,1:].reshape(-1, nhead, w_featmap, h_featmap) # ex. 2, 6, 62, 75
-        cls_attn = self.conv(cls_attn) # 2, 256, w, h
+        # nhead = attentions.shape[1]
+        # cls_attn = attentions.mean(1).squeeze()[0,1:].reshape(w_featmap, h_featmap)
+        
+        # cls_attn = attentions[:,:,0,1:].reshape(-1, nhead, w_featmap, h_featmap) # ex. 2, 6, 62, 75
+        # cls_attn = self.conv(cls_attn) # 2, 256, w, h
         #cls_attn = self.conv(cls_attn).flatten(2).permute(1,0,1) # ex. torch.Size([2, 256, 9435]) > 4960, 2, 256
         # RuntimeError: Given groups=1, weight of size [256, 256, 1, 1], expected input[1, 9435, 2, 256] to have 256 channels, but got 9435 channels instead
-        xs = {'last': cls_attn} 
+        xs = {'last': _x_final} 
         out: Dict[str, NestedTensor] = {}
         for name, x in xs.items():
             m = tensor_list.mask
