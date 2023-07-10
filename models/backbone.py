@@ -100,7 +100,7 @@ class DINOBackbone(nn.Module):
         import models.vision_transformer as vits
         self.arch = args.arch
         self.patch_size = args.patch_size
-        # self.conv = nn.Conv2d(6, args.hidden_dim, 1)
+        self.conv = nn.Conv2d(384, args.hidden_dim, 1)
         self.num_channels = args.hidden_dim
 
         self.model = vits.__dict__[self.arch](patch_size=self.patch_size, num_classes=0)
@@ -139,14 +139,16 @@ class DINOBackbone(nn.Module):
         # cls_attn = attentions.mean(1).squeeze()[0,1:].reshape(w_featmap, h_featmap)
         
         # nhead = attentions.shape[1] 
-        # cls_attn = attentions.mean(1).squeeze()[0,1:].reshape(w_featmap, h_featmap)
+        ntokens = _x_final.shape[2] # 384
+        attn = _x_final.transpose(1,2)[:,:,1:].reshape(-1, ntokens, w_featmap, h_featmap) # 2, 384, 8481 (8480+1) > 2, 384, w, h
         # cls_attn = attentions[:,:,0,1:].reshape(-1, nhead, w_featmap, h_featmap) # ex. 2, 6, 62, 75
         # cls_attn = self.conv(cls_attn) # 2, 256, w, h
         # cls_attn = attentions[:,:,0,1:].reshape(-1, nhead, w_featmap, h_featmap) # ex. 2, 6, 62, 75
-        # cls_attn = self.conv(cls_attn) # 2, 256, w, h
+        attn = self.conv(attn) # 2, 256, w, h
         #cls_attn = self.conv(cls_attn).flatten(2).permute(1,0,1) # ex. torch.Size([2, 256, 9435]) > 4960, 2, 256
         # RuntimeError: Given groups=1, weight of size [256, 256, 1, 1], expected input[1, 9435, 2, 256] to have 256 channels, but got 9435 channels instead
-        xs = {'last': _x_final} 
+        
+        xs = {'last': attn} 
         out: Dict[str, NestedTensor] = {}
         for name, x in xs.items():
             m = tensor_list.mask

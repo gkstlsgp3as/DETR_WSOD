@@ -110,6 +110,8 @@ def get_args_parser():
                         help='Key to use in the checkpoint (example: "teacher")')
     parser.add_argument("--pkl", default="./data/coco_train2017_proposals.pkl", type=str, help='directory for proposal')
     parser.add_argument("--cache", action='store_true', help="cacheing the labels for partial coco dataset")
+    parser.add_argument("--refine_times", default=3, help="number of refinment iteration")
+    parser.add_argument("--temperature", default=10, help="number of epochs starting to refine bboxes")
     return parser
 
 

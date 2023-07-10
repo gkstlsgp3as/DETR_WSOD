@@ -16,11 +16,12 @@ from .matcher import build_matcher
 from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
                            dice_loss, sigmoid_focal_loss)
 from .transformer import build_transformer
+from .refinement_agents import RefinementAgents
 
 
 class DETR(nn.Module):
     """ This is the DETR module that performs object detection """
-    def __init__(self, backbone, transformer, num_classes, num_queries, aux_loss=False):
+    def __init__(self, backbone, transformer, num_classes, num_queries, aux_loss=False, refine_times=3):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -35,6 +36,9 @@ class DETR(nn.Module):
         self.transformer = transformer
         hidden_dim = transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
+
+        self.refinement_agents = RefinementAgents(hidden_dim, num_classes + 1)
+
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
@@ -287,28 +291,23 @@ class SetCriterionWSOD(nn.Module):
         src_logits = outputs['pred_logits']
 
         idx = self._get_src_permutation_idx(indices)
-        target_classes_im = torch.vstack([t["img_labels"] for t in targets])
-        
+        target_classes_im = torch.cat([t["img_labels"] for t in targets])
         target_classes = torch.full(src_logits.transpose(2,1).shape[:2], 0,
                                     dtype=torch.int64, device=src_logits.device) # 2, 92
-        ind = torch.full(target_classes_im.flatten().shape, 0, dtype=torch.int64, device=src_logits.device)
-        ind = (ind, ind)
+        
+        for i, t in enumerate(targets):
+            im_label = t["img_labels"]
+            for lb in im_label:
+                target_classes[i][lb] = 1
 
-        for i, row in enumerate(target_classes_im):
-            for col in row:
-                ind[i][col] = target_classes_im[i][col]
-
-        target_classes[ind] = target_classes_im
         #target_classes[idx] = target_classes_im
-        breakpoint()
         #loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight) # 2,92,100 vs. 2,100
         
         #onehot_target_im = torch.Tensor([1 if i in target_classes_im else 0 for i in range(src_logits.shape[2])]).to(src_logits.device)
-        onehot_target_im = torch.Tensor()
-
-        loss_mil = self.mil_loss(src_logits, onehot_target_im)
+        
+        loss_mil = self.mil_loss(src_logits, target_classes)
         losses = {'loss_mil': loss_mil}#{'loss_ce': loss_ce, 'loss_mil': loss_mil}
-
+        
         if log:
         #    # TODO this should probably be a separate loss, not hacked in this one here
             losses['class_error'] = 100 - mult_accuracy(src_logits[idx], target_classes_im)[0]
@@ -337,7 +336,6 @@ class SetCriterionWSOD(nn.Module):
         mil_score = mil_score_c * mil_score_r
 
         im_cls_score = mil_score.sum(dim=1) # 2, 92 # sum over proposals -> get img labels
-        
         multi_criterion = nn.MultiLabelSoftMarginLoss(weight=None, reduce=False)
         loss = multi_criterion(im_cls_score, onehot_target_im) # 2
         #loss = F.cross_entropy(im_cls_score, onehot_target) # error
@@ -551,6 +549,7 @@ def build_wsod(args):
         num_classes=num_classes,
         num_queries=args.num_queries,
         aux_loss=args.aux_loss,
+        refine_times=args.refine_times
     )
     if args.masks:
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
