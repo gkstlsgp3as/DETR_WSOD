@@ -318,7 +318,7 @@ class SetCriterionWSOD(nn.Module):
         losses = {'loss_mil': loss_mil}#{'loss_ce': loss_ce, 'loss_mil': loss_mil}
         
 
-        lambda_gt = 0.5
+        lambda_gt = torch.tensor(0.5).cuda()
         losses['delta'] = lambda_gt
 
         refine_score = src_refines
@@ -558,6 +558,8 @@ def build_wsod(args):
     # you should pass `num_classes` to be 2 (max_obj_id + 1).
     # For more details on this, check the following discussion
     # https://github.com/facebookresearch/detr/issues/108#issuecomment-650269223
+    from util.config import cfg
+
     num_classes = 20 if args.dataset_file != 'coco' else 91
     if args.dataset_file == "coco_panoptic":
         # for panoptic, we just add a num_classes that is large enough to hold
@@ -580,7 +582,7 @@ def build_wsod(args):
     if args.masks:
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
     matcher = build_matcher(args)
-    weight_dict = {'loss_mil': 1}
+    weight_dict = {'loss_mil': 2, 'loss_refine0': cfg.refine0, 'loss_refine1': cfg.refine1, 'loss_refine2': cfg.refine2}
     weight_dict['loss_giou'] = args.giou_loss_coef
     if args.masks:
         weight_dict["loss_mask"] = args.mask_loss_coef

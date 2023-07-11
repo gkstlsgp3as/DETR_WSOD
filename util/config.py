@@ -9,6 +9,9 @@ cfg = __C
 cfg.ROOT_DIR = osp.abspath(osp.join(osp.dirname(__file__), '..', '..'))
 cfg.DATA_DIR = osp.abspath(osp.join(cfg.ROOT_DIR, 'datasets'))
 cfg.REFINE_TIMES = 3
+cfg.refine0 = 1
+cfg.refine1 = 1.2
+cfg.refine2 = 1.4
 
 def load_config(cfg_file):
 	update_config(lya.AttrDict.from_yaml(cfg_file))
