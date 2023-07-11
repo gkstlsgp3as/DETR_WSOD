@@ -17,6 +17,10 @@ from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
                            dice_loss, sigmoid_focal_loss)
 from .transformer import build_transformer
 from .refinement_agents import RefinementAgents
+from .oicr import OICR 
+from .mil import MIL
+from util.oicr_losses import OICRLosses 
+from util.config import cfg
 
 
 class DETR(nn.Module):
@@ -35,10 +39,8 @@ class DETR(nn.Module):
         self.num_queries = num_queries
         self.transformer = transformer
         hidden_dim = transformer.d_model
-        self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
-
+        self.class_embed = nn.Linear(hidden_dim, num_classes + 1) # 256 > 92
         self.refinement_agents = RefinementAgents(hidden_dim, num_classes + 1)
-
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
@@ -66,22 +68,24 @@ class DETR(nn.Module):
 
         src, mask = features[-1].decompose()
         assert mask is not None
-        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
-
-        outputs_class = self.class_embed(hs)
+        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0] # 6, 2, 100, 256
+        outputs_refinement = self.refinement_agents(hs)
+        outputs_aux_refinement = self.refinement_agents(hs, aux=True)
+        outputs_class = self.class_embed(hs) # 6, 2, 100, 92
         outputs_coord = self.bbox_embed(hs).sigmoid()
-        out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
+
+        out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'pred_refinements': outputs_refinement}
         if self.aux_loss:
-            out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
+            out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord, outputs_aux_refinement)
         return out
 
     @torch.jit.unused
-    def _set_aux_loss(self, outputs_class, outputs_coord):
+    def _set_aux_loss(self, outputs_class, outputs_coord, outputs_refinement):
         # this is a workaround to make torchscript happy, as torchscript
         # doesn't support dictionary with non-homogeneous values, such
         # as a dict having both a Tensor and a list.
-        return [{'pred_logits': a, 'pred_boxes': b}
-                for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
+        return [{'pred_logits': a, 'pred_boxes': b, 'pred_refinements': c}
+                for a, b, c in zip(outputs_class[:-1], outputs_coord[:-1], outputs_refinement)]
 
 
 class SetCriterion(nn.Module):
@@ -264,7 +268,7 @@ class SetCriterionWSOD(nn.Module):
         1) we compute hungarian assignment between ground truth boxes and the outputs of the model
         2) we supervise each pair of matched ground-truth / prediction (supervise class and box)
     """
-    def __init__(self, num_classes, matcher, weight_dict, eos_coef, losses):
+    def __init__(self, num_classes, matcher, weight_dict, eos_coef, losses, hidden_dim, refinement_agents):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -279,6 +283,9 @@ class SetCriterionWSOD(nn.Module):
         self.weight_dict = weight_dict
         self.eos_coef = eos_coef
         self.losses = losses
+        self.Refine_Losses = [OICRLosses() for i in range(cfg.REFINE_TIMES)]
+        self.mil = MIL() 
+        self.refinement_agents = refinement_agents
         empty_weight = torch.ones(self.num_classes + 1)
         empty_weight[-1] = self.eos_coef
         self.register_buffer('empty_weight', empty_weight)
@@ -289,6 +296,8 @@ class SetCriterionWSOD(nn.Module):
         """
         assert 'pred_logits' in outputs
         src_logits = outputs['pred_logits']
+        assert 'pred_refinements' in outputs
+        src_refines = outputs['pred_refinements']
 
         idx = self._get_src_permutation_idx(indices)
         target_classes_im = torch.cat([t["img_labels"] for t in targets])
@@ -304,10 +313,31 @@ class SetCriterionWSOD(nn.Module):
         #loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight) # 2,92,100 vs. 2,100
         
         #onehot_target_im = torch.Tensor([1 if i in target_classes_im else 0 for i in range(src_logits.shape[2])]).to(src_logits.device)
-        
-        loss_mil = self.mil_loss(src_logits, target_classes)
+        mil_score = self.mil(src_logits) # 2, 100, 92
+        loss_mil = self.mil_loss(mil_score, target_classes)
         losses = {'loss_mil': loss_mil}#{'loss_ce': loss_ce, 'loss_mil': loss_mil}
         
+
+        lambda_gt = 0.5
+        losses['delta'] = lambda_gt
+
+        refine_score = src_refines
+        #target_boxes = {}
+        #for i in range(targets.shape[0]):
+        #    target_boxes[i] = targets[i]['proposals'][indices[i]]
+        for i_refine, refine in enumerate(refine_score):
+            if i_refine == 0:
+                refinement_output = OICR(outputs['pred_boxes'], mil_score, target_classes, lambda_gt=lambda_gt)
+            else:
+                refinement_output = OICR(outputs['pred_boxes'], refine_score[i_refine - 1], target_classes, lambda_gt=lambda_gt)
+
+            refine_loss = self.Refine_Losses[i_refine](refine,
+                                                        refinement_output['labels'],
+                                                        refinement_output['cls_loss_weights'],
+                                                        refinement_output['gt_assignment'],
+                                                        refinement_output['im_labels_real'])
+
+            losses['loss_refine%d' % i_refine] = refine_loss.clone()
         if log:
         #    # TODO this should probably be a separate loss, not hacked in this one here
             losses['class_error'] = 100 - mult_accuracy(src_logits[idx], target_classes_im)[0]
@@ -325,21 +355,16 @@ class SetCriterionWSOD(nn.Module):
 
         return multi_loss
 
-    def mil_loss(self, src_logits, onehot_target_im):
+    def mil_loss(self, mil_score, onehot_target_im):
         import torch.nn.functional as F
         from torch import nn 
         # refer to code.layers.losses.mil_loss; target_classes: labels, src_logits: class scores
         # src_logits.shape = (2, 100, 92) = (batch_size, n_tokens, n_classes)
         # target_classes.shape = (2, 100)
-        mil_score_c = F.softmax(src_logits, dim=2) # softmax over classes -> mil_score_c[0,0,:].sum() == 1
-        mil_score_r = F.softmax(src_logits, dim=1) # softmax over proposals -> mil_score_r[0,:,0].sum() == 1
-        mil_score = mil_score_c * mil_score_r
-
+        
         im_cls_score = mil_score.sum(dim=1) # 2, 92 # sum over proposals -> get img labels
         multi_criterion = nn.MultiLabelSoftMarginLoss(weight=None, reduce=False)
-        loss = multi_criterion(im_cls_score, onehot_target_im) # 2
-        #loss = F.cross_entropy(im_cls_score, onehot_target) # error
-        #loss = -target_classes * torch.log(im_cls_score) - (1 - target_classes) * torch.log(1 - im_cls_score)
+        loss = multi_criterion(im_cls_score, onehot_target_im) # 
 
         return loss.mean()
 
@@ -356,7 +381,8 @@ class SetCriterionWSOD(nn.Module):
         card_err = F.l1_loss(card_pred.float(), tgt_lengths.float())
         losses = {'cardinality_error': card_err}
         return losses
-
+    
+    
     def _get_src_permutation_idx(self, indices):
         # permute predictions following indices
         batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
@@ -572,7 +598,8 @@ def build_wsod(args):
 
     # training할 때만 WSOD로 loss 체크하고 validation할 때는 bbox 체크했으면 좋겠는데...
     criterion = SetCriterionWSOD(num_classes, matcher=matcher, weight_dict=weight_dict,
-                                 eos_coef=args.eos_coef, losses=losses)
+                                 eos_coef=args.eos_coef, losses=losses, hidden_dim=args.hidden_dim,
+                                 refinement_agents=model.refinement_agents)
     criterion.to(device)
 
     postprocessors = {'bbox': PostProcess()}
