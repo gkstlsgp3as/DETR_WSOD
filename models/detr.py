@@ -373,9 +373,9 @@ class SetCriterionWSOD(nn.Module):
         """ Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes
         This is not really a loss, it is intended for logging purposes only. It doesn't propagate gradients
         """
-        pred_logits = outputs['pred_logits']
+        pred_logits = outputs['pred_logits'] # 2, 100, 92
         device = pred_logits.device
-        tgt_lengths = torch.as_tensor([len(v["img_labels"]) for v in targets], device=device)
+        tgt_lengths = torch.as_tensor([len(v["img_labels"]) for v in targets], device=device) 
         # Count the number of predictions that are NOT "no-object" (which is the last class)
         card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
         card_err = F.l1_loss(card_pred.float(), tgt_lengths.float())
