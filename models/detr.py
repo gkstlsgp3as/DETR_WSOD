@@ -41,7 +41,7 @@ class DETR(nn.Module):
         self.transformer = transformer
         hidden_dim = transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes + 1) # 256 > 92
-        self.mil = MIL(hidden_dim, num_classes + 1) 
+        self.mil = MIL(hidden_dim, num_classes) 
         self.refinement_agents = RefinementAgents(hidden_dim, num_classes + 1)
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
@@ -320,7 +320,6 @@ class SetCriterionWSOD(nn.Module):
 
         lambda_gt = torch.tensor(0.5).cuda()
         losses['delta'] = lambda_gt
-
         for i_refine, refine in enumerate(refine_score):
             if i_refine == 0:
                 refinement_output = OICR(outputs['pred_boxes'], mil_score, target_classes, lambda_gt=lambda_gt)
