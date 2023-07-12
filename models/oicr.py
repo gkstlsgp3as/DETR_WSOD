@@ -57,8 +57,8 @@ def OICR(boxes, cls_prob, im_labels, lambda_gt=0.5): ## aux_loss 넣으면 안�
         bg_inds = torch.where(max_overlaps < lambda_gt)[0]
         labels[i][bg_inds] = 0
         gt_assignment[i][bg_inds] = -1
-        print("labels: ", labels[i])  # [0, 0, 0, ...]
-        print("gt:", gt_assignment[i]) # [-1, -1, ...] 
+        #print("labels: ", labels[i])  # [0, 0, 0, ...]
+        #print("gt:", gt_assignment[i]) # [-1, -1, ...] 
         # => 지금 너무 엉망진창으로 나오니까 overlaps도 충분히 안나오고 여기도 0, 1로 통일되어버리는 문제가 있음. 
         # 그래서 학습이 아예 안되는 것 같으니까 bbox loss를 어느정도 proposals을 이용해서 반영하거나
         # decoder input queries에 bbox coordinate 특성 반영해줘야 함. 
