@@ -318,7 +318,7 @@ class SetCriterionWSOD(nn.Module):
         loss_mil = mil_loss(im_cls_score, target_classes)
         losses = {'loss_mil': loss_mil}
 
-        lambda_gt = torch.tensor(0.5).cuda()
+        lambda_gt = torch.tensor(0.3).cuda()
         losses['delta'] = lambda_gt
         for i_refine, refine in enumerate(refine_score):
             if i_refine == 0:
