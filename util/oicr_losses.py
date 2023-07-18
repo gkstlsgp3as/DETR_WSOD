@@ -17,7 +17,7 @@ class OICRLosses(nn.Module):
             cls_loss_weights = cls_loss_weights.unsqueeze(0).unsqueeze(-1).repeat(pcl_probs.shape[0], 1, 1, pcl_probs.shape[-1]).cuda() # 6, 2, 100, 92
             labels = labels.unsqueeze(0).unsqueeze(-1).repeat(pcl_probs.shape[0], 1, 1, pcl_probs.shape[-1]).cuda()
             reap   = torch.arange(pcl_probs.shape[-1])[None,:].repeat(pcl_probs.shape[-3], pcl_probs.shape[-2], 1).unsqueeze(0).repeat(pcl_probs.shape[0],1,1,1).long() # 100, 92
-            # 원래 torch.arange 인데 one-hot에 맞춰서 ones로 변경함. 
+             
             labels = (reap.cuda() - labels == 0).float().cuda() # 6, 2, 100, 92; class 일치하는 경우
             
             loss = labels * cls_loss_weights * pcl_probs

@@ -23,10 +23,13 @@ VOC2007 trainval
 ## Attention! 
 ### training
 ```shell
-python main.py --coco_path /home/shhan/oicr/data/coco --backbone vit_small --patch_size 8 --wsod 
+python main.py --coco_path /path/to/data/coco --backbone vit_small --patch_size 8 --wsod 
 
-# for distributed training
-python -m torch.distributed.launch --nproc_per_node=4 main.py --coco_path /home/shhan/oicr/data/coco --backbone vit_small --patch_size 8 --wsod 
+# for distributed training (resnet50 + wsod)
+python -m torch.distributed.launch --nproc_per_node=4 main.py --coco_path /path/to/data/coco --backbone resnet50 --wsod --no_aux_loss --output_dir ./outputs/resnet50_wsod
+
+# for distributed training (dino + wsod)
+python -m torch.distributed.launch --nproc_per_node=4 main.py --coco_path /path/to/data/coco --backbone vit_small --patch_size 16 --wsod --no_aux_loss --output_dir ./outputs/dino_wsod
 ```
 
 
