@@ -54,36 +54,37 @@ class HungarianMatcher(nn.Module):
                 len(index_i) = len(index_j) = min(num_queries, num_target_boxes)
         """
         if self.wsod:
-            bs, num_queries = outputs["pred_logits"].shape[:2]
+            bs, num_queries = outputs["pred_mil"].shape[:2] # 2, 100
 
             # We flatten to compute the cost matrices in a batch
-            out_prob = outputs["pred_logits"].flatten(0, 1).softmax(-1)  # [batch_size * num_queries, num_classes]
+            out_prob = outputs["pred_mil"].flatten(0, 1).softmax(-1)  # [batch_size * num_queries, num_classes] # 200, 91
 
             # Also concat the target labels and boxes
-            tgt_ids = torch.cat([v["labels"] for v in targets])
+            tgt_ids = torch.cat([v["img_labels"] for v in targets]) # e.g. [ 1,  6, 28, 73, 74, 76, 77] => 7
 
             # Compute the classification cost. Contrary to the loss, we don't use the NLL,
             # but approximate it in 1 - proba[target class].
             # The 1 is a constant that doesn't change the matching, it can be ommitted.
-            cost_class = -out_prob[:, tgt_ids]
+            cost_class = -out_prob[:, tgt_ids] # 200, im_cls (7)
 
             # Final cost matrix
             C = self.cost_class * cost_class 
-            C = C.view(bs, num_queries, -1).cpu()
+            C = C.view(bs, num_queries, -1).cpu() # 2, 100, im_cls (7)
 
-            sizes = [len(v["boxes"]) for v in targets]
+            sizes = [len(v["img_labels"]) for v in targets] # e.g. 3, 4
             indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
+            # e.g. [(array([28, 79, 86]), array([2, 0, 1])), (array([10, 24, 48, 91]), array([0, 2, 1, 3]))]
             return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
 
         else:
             bs, num_queries = outputs["pred_logits"].shape[:2]
 
             # We flatten to compute the cost matrices in a batch
-            out_prob = outputs["pred_logits"].flatten(0, 1).softmax(-1)  # [batch_size * num_queries, num_classes]
+            out_prob = outputs["pred_logits"].flatten(0, 1).softmax(-1)  # [batch_size * num_queries, num_classes] # 200, 92
             out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]
 
             # Also concat the target labels and boxes
-            tgt_ids = torch.cat([v["labels"] for v in targets])
+            tgt_ids = torch.cat([v["labels"] for v in targets]) # e.g. [ 6,  1,  1,  1,  1,  1,  1, 77, 77, 73, 74, 76, 76]
             tgt_bbox = torch.cat([v["boxes"] for v in targets])
 
             # Compute the classification cost. Contrary to the loss, we don't use the NLL,
