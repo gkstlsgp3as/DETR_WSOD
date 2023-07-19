@@ -66,8 +66,8 @@ def OICR(boxes, cls_prob, im_labels, lambda_gt=0.5): ## aux_loss 넣으면 안�
     labels = torch.stack([labels[i] for i in list(labels.keys())])
     cls_loss_weights = torch.stack([cls_loss_weights[i] for i in list(cls_loss_weights.keys())])
     gt_assignment = torch.stack([gt_assignment[i] for i in list(gt_assignment.keys())])
-
+    
     return {'labels' : labels,#.reshape(1, -1),
             'cls_loss_weights' : cls_loss_weights,#.reshape(1, -1),
             'gt_assignment' : gt_assignment,#.reshape(1, -1),
-            'im_labels_real' : torch.cat((torch.tensor([[1],[1]]).cuda(), im_labels), dim=1)} # 2, 93
+            'im_labels_real' : torch.cat((torch.tensor([[1]]).repeat(im_labels.shape[0],1).cuda(), im_labels), dim=1)} # 2, 93

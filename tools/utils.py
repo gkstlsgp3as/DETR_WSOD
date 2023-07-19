@@ -697,12 +697,12 @@ class PCA():
         if x.is_cuda:
             if self.mean is not None:
                 x -= torch.cuda.FloatTensor(self.mean)
-            return torch.mm(torch.cuda.FloatTensor(self.dvt), x.transpose(0, 1)).transpose(0, 1)
+            return torch.mm(torch.cuda.FloatTensor(self.dvt), x.transpose(0, 1)).transpose(0, 1).contiguous()
 
         # input if from torch, on CPU
         if self.mean is not None:
             x -= torch.FloatTensor(self.mean)
-        return torch.mm(torch.FloatTensor(self.dvt), x.transpose(0, 1)).transpose(0, 1)
+        return torch.mm(torch.FloatTensor(self.dvt), x.transpose(0, 1)).transpose(0, 1).contiguous()
 
 
 def compute_ap(ranks, nres):
