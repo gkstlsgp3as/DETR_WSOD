@@ -10,20 +10,25 @@ mkl-random==1.2.2
 mkl-service==2.4.0
 numpy==1.22.3
 olefile==0.44
-packaging==16.8
-Pillow==7.1.0
+packaging==21.3
+#legacy: packaging 16.8
+Pillow==9.0.1
+#legacy: pillow 7.1.0
 protobuf==4.23.2
-pycocotools==2.0.1
+#pycocotools==2.0.1
 pycparser==2.18
 pyparsing==2.2.0
-python-dateutil==2.6.1
+python-dateutil==2.8.2
+#legacy: python-dateutil 2.6.1
 PyYAML==5.1
 scikit-learn==0.23.1
-scipy==1.4.1
-six==1.10.0
+scipy==1.8.1
+#legacy: scipy 1.4.1
+six==1.12.0
+#legacy: six 1.10.0
 tensorboardX==2.1
 threadpoolctl==2.1.0
-torch==1.11.0
-torchvision==0.12.0
-tornado==4.5.2
+#torch==1.11.0
+#torchvision==0.12.0
+tornado==6.2
 tqdm==4.15.0
