@@ -4,7 +4,7 @@ Transformer Based Weakly Supervised Framework for Multi-Scaled Object Detection
 PyTorch training code and pretrained models for **DETR** (**DE**tection **TR**ansformer)-based WSOD(**W**eakly **S**upervised **O**bject **D**etection) framework.
 We combined DETR with MIL-based WSOD framework to avoid expensive hand-crafted annotations. 
 
-<img src="https://github.com/gkstlsgp3as/DETR_WSOD/assets/58411517/2108a55b-737c-4a1d-8e3a-cab25c7f36cf" width="600" height="200" align="left"/>
+<img src="https://github.com/gkstlsgp3as/DETR_WSOD/assets/58411517/2108a55b-737c-4a1d-8e3a-cab25c7f36cf" width="600" height="300" align="left"/>
 <img src="https://github.com/gkstlsgp3as/DETR_WSOD/assets/58411517/13339f8c-5476-4379-844e-bdb427f30d42" width="600" height="200 align="left""/>
 
 **What it is**. 
