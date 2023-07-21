@@ -4,8 +4,8 @@ Transformer Based Weakly Supervised Framework for Multi-Scaled Object Detection
 PyTorch training code and pretrained models for **DETR** (**DE**tection **TR**ansformer)-based WSOD(**W**eakly **S**upervised **O**bject **D**etection) framework.
 We combined DETR with MIL-based WSOD framework to avoid expensive hand-crafted annotations. 
 
-<img src="https://github.com/gkstlsgp3as/DETR_WSOD/assets/58411517/2108a55b-737c-4a1d-8e3a-cab25c7f36cf" width="800" height="550" align="center"/>
-<img src="https://github.com/gkstlsgp3as/DETR_WSOD/assets/58411517/13339f8c-5476-4379-844e-bdb427f30d42" width="800" height="400" align="center"/>
+<img src="https://github.com/gkstlsgp3as/DETR_WSOD/assets/58411517/2108a55b-737c-4a1d-8e3a-cab25c7f36cf" width="700" height="450" align="center"/>
+<img src="https://github.com/gkstlsgp3as/DETR_WSOD/assets/58411517/13339f8c-5476-4379-844e-bdb427f30d42" width="700" height="350" align="center"/>
 
 **What it is**. 
 state-of-the-art deep neural networks still suffer from detecting multi-scaled objects, especially small ones. To mitigate this problem, our study propose attention and similarity based pseudo bounding box generator to collectively detect multi-scaled objects, leading the model to employ class-agnostic representations of objects. Armed with this novel approach, Transformer based DETR architecture deploys multi-instance head and refinement head. 
