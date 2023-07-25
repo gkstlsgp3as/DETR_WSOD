@@ -72,7 +72,7 @@ python main.py --coco_path /path/to/data/coco --backbone dino --arch vit_small -
 
 Once you have a model checkpoint, you can resume training when it is accidently aborted :
 ```
-python -m torch.distributed.launch --nproc_per_node=8 --use_env main.py--epochs 25 --lr_drop 15 --coco_path /path/to/coco  --resume ./outputs/dino_wsod/checkpoint.pth
+python -m torch.distributed.launch --nproc_per_node=8 --use_env main.py--epochs 25 --lr_drop 15 --coco_path /path/to/coco  --resume ./outputs/dino_wsod/checkpoint.pth --no_aux_loss --wsod --backbone resnet50
 ```
 
 A single epoch takes 1 hr, so 300 epoch training
