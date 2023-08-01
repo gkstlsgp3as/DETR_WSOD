@@ -26,7 +26,7 @@ from util.config import cfg
 
 class DETR(nn.Module):
     """ This is the DETR module that performs object detection """
-    def __init__(self, backbone, transformer, num_classes, num_queries, aux_loss=False, refine_times=3):
+    def __init__(self, backbone, transformer, num_classes, num_queries, aux_loss=False, refine_times=3, mean_query=False):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -48,8 +48,9 @@ class DETR(nn.Module):
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
         self.backbone = backbone
         self.aux_loss = aux_loss
+        self.mean_query = mean_query
 
-    def forward(self, samples: NestedTensor):
+    def forward(self, samples: NestedTensor, targets):
         """ The forward expects a NestedTensor, which consists of:
                - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
                - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
@@ -67,10 +68,9 @@ class DETR(nn.Module):
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
         features, pos = self.backbone(samples)
-
-        src, mask = features[-1].decompose()
+        src, mask = features[-1].decompose() # src: 2 256 40 62
         assert mask is not None
-        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0] # 6, 2, 100, 256
+        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1], mean_query = self.mean_query, targets = targets)[0] # 6, 2, 100, 256
         outputs_mil = self.mil(hs)
         outputs_refinement = self.refinement_agents(hs)
         outputs_aux_refinement = self.refinement_agents(hs, aux=True)
@@ -383,7 +383,6 @@ class SetCriterionWSOD(nn.Module):
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
 
         # Retrieve the matching between the outputs of the last layer and the targets
-        
         indices = self.matcher(outputs_without_aux, targets)
 
         # Compute the average number of target boxes accross all nodes, for normalization purposes
@@ -548,7 +547,8 @@ def build_wsod(args):
         num_classes=num_classes,
         num_queries=args.num_queries,
         aux_loss=args.aux_loss,
-        refine_times=args.refine_times
+        refine_times=args.refine_times,
+        mean_query = args.mean_query
     )
     if args.masks:
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))

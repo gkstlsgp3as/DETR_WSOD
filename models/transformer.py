@@ -13,7 +13,7 @@ from typing import Optional, List
 import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
-
+import numpy as np
 
 class Transformer(nn.Module):
 
@@ -44,16 +44,64 @@ class Transformer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, src, mask, query_embed, pos_embed):
+    def forward(self, src, mask, query_embed, pos_embed, mean_query = False, targets = None):
         # flatten NxCxHxW to HWxNxC
         bs, c, h, w = src.shape
-        src = src.flatten(2).permute(2, 0, 1).contiguous() # 49, 2, 256
+        
+        src = src.flatten(2).permute(2, 0, 1).contiguous() # 2480, 2, 256 = N B C
         pos_embed = pos_embed.flatten(2).permute(2, 0, 1).contiguous()
-        query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)
-        mask = mask.flatten(1)
 
+        query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1) # 100, 2, 256
+        num_queries = query_embed.shape[0]
+        mask = mask.flatten(1)
         tgt = torch.zeros_like(query_embed)
-        memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
+        memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed) # 540, 2, 256 =  N B C
+        if mean_query:
+            assert targets is not None
+            memory = memory.permute(1,0,2) # B N C; 2, 540, 256
+            
+            query_vec = torch.empty(2,num_queries).to(memory.device)
+            for i in range(bs):
+                mean_vec = torch.empty(1).to(memory.device) #initialize
+                center_vec = torch.empty(1).to(memory.device)
+
+                real_query_num = targets[i]['proposals'].shape[0]
+                query_num = min(num_queries, real_query_num)
+                feat = memory[i].reshape(h, w, -1) # H W C; 20, 27, 256
+                bboxes = targets[i]['proposals'] # nq x y w h
+                feat_queries = [] # real_query_num C
+                for bbox_i in range(real_query_num):
+                    x, y, bbox_w, bbox_h = bboxes[bbox_i]
+                    feat_h, feat_w = int(bbox_h * h), int(bbox_w * w)
+                    feat_x, feat_y = int(x * w), int(y * h)
+                    if not ((feat[feat_y:feat_y+feat_h, feat_x:feat_x+feat_w].shape[0]) and (feat[feat_y:feat_y+feat_h, feat_x:feat_x+feat_w].shape[1])): # if no pixels exist, mean() returns nan -> fill with -inf 
+                        mean_feat = torch.tensor(-float('inf')).to(memory.device)
+                    else:
+                        mean_feat = torch.tensor(feat[feat_y:feat_y+feat_h, feat_x:feat_x+feat_w].nanmean()) # C; 256
+                    
+                    center_x = x+bbox_w/2; center_y = y+bbox_h
+                    center_point = center_y*1 + center_x # linearly calculating the location (1 is the width)
+                    
+                    center_vec = torch.cat((center_vec, center_point.reshape(1)))
+                    mean_vec = torch.cat((mean_vec, mean_feat.reshape(1)))
+                
+                center_vec = center_vec[1:]; mean_vec = mean_vec[1:] # eliminate the first empty value
+                ind = torch.topk(mean_vec, query_num)[1] # get indices of top 100 proposals
+                if query_num < num_queries:
+                    center_vec = torch.cat((center_vec, torch.rand(num_queries-query_num).to(memory.device))) # append center_vec with random values to make it fit to 100 
+                    for add in range(num_queries-query_num):
+                        ind = torch.cat((ind, torch.tensor(query_num+add).reshape(1).to(memory.device))) # append index
+                feat_queries.append(center_vec[ind])
+                query_vec[i,...] = torch.stack(feat_queries, dim=0) # fill with existing values; otherwise, leave it be 
+                
+            # now query_vec = 2,100
+            query_vec = query_vec.permute(1,0) # 100,2
+            query_vec = query_vec.unsqueeze(2).repeat(1,1,256) # 100, 2, 256
+            
+            memory = memory.permute(1,0,2) # B N C -> N B C; back to original 
+
+        query_embed = query_embed*query_vec # 100, 2, 256 => 이렇게 해도 되는지는 고민...
+        
         hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                           pos=pos_embed, query_pos=query_embed)
         return hs.transpose(1, 2).contiguous(), memory.permute(1, 2, 0).contiguous().view(bs, c, h, w)

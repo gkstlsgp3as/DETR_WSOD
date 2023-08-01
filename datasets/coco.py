@@ -34,14 +34,14 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         for _num_retries in range(self.retries):
             try:
                 img, target = super(CocoDetection, self).__getitem__(idx)
-                shape = torch.as_tensor(img.size)
                 image_id = self.ids[idx]
                 target = {'image_id': image_id, 'annotations': target}
                 
                 img, target = self.prepare(img, target)
+                
                 #target['orig_size'] = torch.as_tensor([int(img.size[1]), int(img.size[0])]) # h, w
                 target['img_labels'] = torch.unique(target['labels']) # wsod
-                target['proposals'] = normalize_proposals(self.proposals[image_id], shape) # wsod proposals from dino
+                target['proposals'] = normalize_proposals(self.proposals[image_id]*8, target['orig_size']) # wsod proposals from dino
                 
                 if self._transforms is not None:
                     img, target = self._transforms(img, target)

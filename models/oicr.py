@@ -50,7 +50,6 @@ def OICR(boxes, cls_prob, im_labels, lambda_gt=0.5): ## aux_loss 넣으면 안�
 
         overlaps = box_iou(box, gt_boxes)  # calculate IOU -> 100, 4 vs n, 4 => 100, n
         max_overlaps, gt_assignment[i] = overlaps.max(dim=1)  # max IOU and Index => val: 100 / ind: 100
-        
         labels[i] = gt_classes[gt_assignment[i], 0] # 100
         cls_loss_weights[i] = gt_scores[gt_assignment[i], 0] # 100
         

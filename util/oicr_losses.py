@@ -19,7 +19,6 @@ class OICRLosses(nn.Module):
             reap   = torch.arange(pcl_probs.shape[-1])[None,:].repeat(pcl_probs.shape[-3], pcl_probs.shape[-2], 1).unsqueeze(0).repeat(pcl_probs.shape[0],1,1,1).long() # 100, 92
              
             labels = (reap.cuda() - labels == 0).float().cuda() # 6, 2, 100, 92; class 일치하는 경우
-            
             loss = labels * cls_loss_weights * pcl_probs
             loss = -loss.sum(dim=-1).mean() # / pcl_probs.size(0) # 2, 100, 92 > 2, 100 (sum over class) 
                                                         # > 2 (mean over proposals) > 1 (mean over images)
