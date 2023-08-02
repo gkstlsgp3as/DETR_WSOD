@@ -100,7 +100,7 @@ class Transformer(nn.Module):
             
             memory = memory.permute(1,0,2) # B N C -> N B C; back to original 
 
-        query_embed = query_embed*query_vec # 100, 2, 256 => 이렇게 해도 되는지는 고민...
+        query_embed = query_embed+query_vec # 100, 2, 256 => 이렇게 해도 되는지는 고민...
         
         hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                           pos=pos_embed, query_pos=query_embed)
