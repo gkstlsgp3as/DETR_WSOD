@@ -74,6 +74,14 @@ class Transformer(nn.Module):
                     x, y, bbox_w, bbox_h = bboxes[bbox_i]
                     feat_h, feat_w = int(bbox_h * h), int(bbox_w * w)
                     feat_x, feat_y = int(x * w), int(y * h)
+                   
+                    # Conditions to pass the bbox
+                    # When both of W and H are too small
+                    if feat_w < 3 or feat_h < 3: continue
+                    # When one of W or H is relatively too small
+                    if feat_w < 5 and feat_w*7 < feat_h: continue
+                    if feat_h < 5 and feat_h*7 < feat_w: continue
+                   
                     if not ((feat[feat_y:feat_y+feat_h, feat_x:feat_x+feat_w].shape[0]) and (feat[feat_y:feat_y+feat_h, feat_x:feat_x+feat_w].shape[1])): # if no pixels exist, mean() returns nan -> fill with -inf 
                         mean_feat = torch.tensor(-float('inf')).to(memory.device)
                     else:
